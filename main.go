@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/stickysh/cli/commands"
+	"github.com/stickysh/cli/command"
 	"io"
 	"io/ioutil"
 	"log"
@@ -95,8 +95,8 @@ func InitCliServices(host string) *cliServices {
 	cfg := internal.NewConfig(host, "")
 	cfg.Auth, _ = cfg.LoadAuth()
 
-	if cfg.Auth.AccessToken != "" && commands.ShouldRefresh(cfg.Auth.AccessToken) {
-		auth := commands.RefreshToken(cfg.RemoteHost, cfg.Auth.RefreshToken)
+	if cfg.Auth.AccessToken != "" && command.ShouldRefresh(cfg.Auth.AccessToken) {
+		auth := command.RefreshToken(cfg.RemoteHost, cfg.Auth.RefreshToken)
 		cfg.UpdateConf(auth)
 	}
 
@@ -112,6 +112,8 @@ type cliServices struct {
 	cfg    *internal.CliConf
 	remote *internal.ForgeClient
 }
+
+var vesrion = "v0.9.0"
 
 func main() {
 	// TODO: First time use
@@ -137,9 +139,16 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			{
+				Name: "version",
+				Action: func(c *cli.Context) error {
+					internal.OutInfo(fmt.Sprintf("sticky/%s", vesrion))
+					return nil
+				},
+			},
+			{
 				Name: "login",
 				Action: func(c *cli.Context) error {
-					auth, err := commands.Login(cliSvc.remote)
+					auth, err := command.Login(cliSvc.remote)
 					if err != nil {
 						return nil
 					}
