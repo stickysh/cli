@@ -29,13 +29,13 @@ func SecretList(remote *internal.ForgeClient) ([]SecretResponse, error) {
 
 	bodyRaw, err := ioutil.ReadAll(resp.Body)
 
-	var res []SecretResponse
+	var result []SecretResponse
 
-	err = json.Unmarshal(bodyRaw, &res)
+	err = json.Unmarshal(bodyRaw, &result)
 	if err != nil {
 		return nil, err
 	}
 
-	return res, nil
+	return result, nil
 
 }

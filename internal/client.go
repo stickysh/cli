@@ -87,6 +87,22 @@ func (fa *ForgeClient) ActionsEP() string {
 	return fmt.Sprintf("%s/actions", fa.auth.Username)
 }
 
+func (fa *ForgeClient) FlowsEP() string {
+	return fmt.Sprintf("%s/flows", fa.auth.Username)
+}
+
+func (fa *ForgeClient) FlowEP(tag string) string {
+	fmt.Sprintf("%s/flows/%s", fa.auth.Username, tag)
+}
+
+func (fa *ForgeClient) FlowDeployEP(tag string) string {
+	return fmt.Sprintf("%s/flows/%s/deploy", fa.auth.Username, tag)
+}
+
+func (fa *ForgeClient) FlowRunEP(tag string) string {
+	return fmt.Sprintf("%s/flows/%s/run", fa.auth.Username, tag)
+}
+
 func (fa *ForgeClient) SecretEP() string {
 	return fmt.Sprintf("%s/actions", fa.auth.Username)
 }

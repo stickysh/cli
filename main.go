@@ -138,7 +138,7 @@ VERSION:
 			{
 				Name:   "logout",
 				Hidden: true,
-				Action: func(c *cli.Context) error {
+ 				Action: func(c *cli.Context) error {
 					cliSvc.cfg.DeleteConf()
 					return nil
 				},
@@ -301,7 +301,7 @@ VERSION:
 
 							flowPath := cliSvc.cfg.WD
 
-							defPath := fmt.Sprintf("%s/flow.tsx", flowPath)
+							defPath := fmt.Sprintf("%s/flow.yaml", flowPath)
 							if c.IsSet("file") {
 								defPath = c.String("file")
 								ext := filepath.Ext(defPath)
@@ -323,44 +323,7 @@ VERSION:
 								return fmt.Errorf("please tag the new flow")
 							}
 
-							jsonDef, err := loadDefFile(defPath)
-							if err != nil {
-								return err
-							}
-
-							ep := fmt.Sprintf("%s/flows/%s", cliSvc.cfg.Auth.Username, tag)
-							req, err := cliSvc.remote.NewApiRequest(http.MethodPost, ep, bytes.NewBuffer(jsonDef))
-							if err != nil {
-								return err
-							}
-
-							resp, err := cliSvc.remote.Do(req)
-							if err != nil {
-								return err
-							}
-
-							// TODO: Move Auth/Login check to central location
-							if resp.StatusCode == http.StatusUnauthorized {
-								internal.OutError("you are not connected, please login")
-								return nil
-							}
-
-							if resp.StatusCode != http.StatusOK {
-								internal.OutError("remote server responded with and error")
-								return nil
-							}
-
-							ep = fmt.Sprintf("%s/flows/%s/deploy", cliSvc.cfg.Auth.Username, tag)
-							req, err = cliSvc.remote.NewApiRequest(http.MethodPut, ep, bytes.NewBuffer(jsonDef))
-							if err != nil {
-								return err
-							}
-
-							resp, err = cliSvc.remote.Do(req)
-							if err != nil {
-								return err
-							}
-
+							command.FlowCreate(cliSvc.remote, tag, defPath)
 							return nil
 						},
 					},
@@ -374,10 +337,6 @@ VERSION:
 						},
 						Action: func(c *cli.Context) error {
 
-							//if c.Args().Len() != 1 {
-							//	return fmt.Errorf("please provide flow name")
-							//}
-
 							var tag string
 							if c.Args().Len() > 0 {
 								tag = c.Args().First()
@@ -390,18 +349,8 @@ VERSION:
 								return fmt.Errorf("please provide payload")
 							}
 
-							fmt.Println(payload)
-							ep := fmt.Sprintf("%s/flows/%s/run", cliSvc.cfg.Auth.Username, tag)
-							req, err := cliSvc.remote.NewApiRequest(http.MethodPost, ep, bytes.NewBuffer([]byte(payload)))
-							if err != nil {
-								return err
-							}
+							command.FlowRun(cliSvc.remote, tag, payload)
 
-							resp, err := cliSvc.remote.Do(req)
-							if err != nil {
-								return err
-							}
-							fmt.Println(resp)
 							return nil
 						},
 					},
@@ -415,42 +364,19 @@ VERSION:
 						Name:    "list",
 						Aliases: []string{"ls"},
 						Action: func(c *cli.Context) error {
-							var respStruct []struct {
-								ID          string    `json:"id"`
-								Name        string    `json:"name"`
-								Description string    `json:"description"`
-								IsActive    bool      `json:"is_active"`
-								CreatedAt   time.Time `json:"updated_at"`
-							}
-
-							ep := fmt.Sprintf("%s/flows", cliSvc.cfg.Auth.Username)
-							req, err := cliSvc.remote.NewApiRequest(http.MethodGet, ep, nil)
+							result, err := command.FlowList(cliSvc.remote)
 							if err != nil {
 								return err
 							}
 
-							resp, err := cliSvc.remote.Do(req)
-							if err != nil {
-								return err
-							}
-
-							if resp.StatusCode == http.StatusUnauthorized {
-								internal.OutError("you are not connected, please login")
-								return nil
-							}
-
-							if resp.StatusCode != http.StatusOK {
-								internal.OutError("an error occurred")
-								return nil
-							}
-
-							bodyRaw, err := ioutil.ReadAll(resp.Body)
-							log.Println(string(bodyRaw))
-							json.Unmarshal(bodyRaw, &respStruct)
-
-							out := make([][]string, len(respStruct))
-							for i, v := range respStruct {
-								out[i] = []string{fmt.Sprintf(v.ID), fmt.Sprintf(v.Name), fmt.Sprintf("%v", v.IsActive), v.CreatedAt.Format("2006-01-02")}
+							out := make([][]string, len(result))
+							for i, v := range result {
+								out[i] = []string{
+									fmt.Sprintf(v.ID),
+									fmt.Sprintf(v.Name),
+									fmt.Sprintf("%v", v.IsActive),
+									v.CreatedAt.Format("2006-01-02"),
+								}
 							}
 							internal.OutResult([]string{"ACTION ID", "NAME", "ACTIVE", "UPDATED"}, out)
 							return nil
