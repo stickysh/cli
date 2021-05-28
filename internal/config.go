@@ -9,14 +9,11 @@ import (
 	"github.com/pelletier/go-toml"
 )
 
-var (
-	credFile = ".sticky/credentials"
-)
-
 type CliConf struct {
 	Auth       *AuthCred
 	RemoteHost string
 	WD         string
+	ConfPath   string
 }
 
 type AuthFile struct {
@@ -36,6 +33,7 @@ func NewConfig(host string, path string) *CliConf {
 		Auth:       &AuthCred{},
 		RemoteHost: host,
 		WD:         pwd,
+		ConfPath:   path,
 	}
 
 }
@@ -45,7 +43,7 @@ func (c CliConf) LoadAuth() (*AuthCred, error) {
 
 	var authConf AuthFile
 
-	confFile, err := ioutil.ReadFile(filepath.Join(usr.HomeDir, credFile))
+	confFile, err := ioutil.ReadFile(filepath.Join(usr.HomeDir, c.ConfPath, "credentials"))
 	if err != nil {
 		return nil, err
 	}
@@ -60,9 +58,9 @@ func (c *CliConf) UpdateConf(auth *AuthCred) error {
 		return err
 	}
 	usr, err := user.Current()
-	return ioutil.WriteFile(filepath.Join(usr.HomeDir, credFile), data, os.ModePerm|0644)
+	return ioutil.WriteFile(filepath.Join(usr.HomeDir, c.ConfPath), data, os.ModePerm|0644)
 }
 
 func (c *CliConf) DeleteConf() error {
-	return os.Remove(credFile)
+	return os.Remove(c.ConfPath)
 }

@@ -74,3 +74,39 @@ func (fa *ForgeClient) NewAuthRequest(method, ep string, body io.Reader) (*http.
 func (fa *ForgeClient) NewRequest(method, ep string, body io.Reader) (*http.Request, error) {
 	return http.NewRequest(method, fmt.Sprintf("%s/%s", fa.Host, ep), body)
 }
+
+func (fa *ForgeClient) ActionUploadEP(tag string) string {
+	return fmt.Sprintf("%s/actions/%s/code", fa.auth.Username, tag)
+}
+
+func (fa *ForgeClient) ActionEP(tag string) string {
+	return fmt.Sprintf("%s/actions/%s", fa.auth.Username, tag)
+}
+
+func (fa *ForgeClient) ActionsEP() string {
+	return fmt.Sprintf("%s/actions", fa.auth.Username)
+}
+
+func (fa *ForgeClient) FlowsEP() string {
+	return fmt.Sprintf("%s/flows", fa.auth.Username)
+}
+
+func (fa *ForgeClient) FlowEP(tag string) string {
+	fmt.Sprintf("%s/flows/%s", fa.auth.Username, tag)
+}
+
+func (fa *ForgeClient) FlowDeployEP(tag string) string {
+	return fmt.Sprintf("%s/flows/%s/deploy", fa.auth.Username, tag)
+}
+
+func (fa *ForgeClient) FlowRunEP(tag string) string {
+	return fmt.Sprintf("%s/flows/%s/run", fa.auth.Username, tag)
+}
+
+func (fa *ForgeClient) SecretEP() string {
+	return fmt.Sprintf("%s/actions", fa.auth.Username)
+}
+
+func (fa *ForgeClient) SecretKeyEP() string {
+	return fmt.Sprintf("%s/secrets/key", fa.auth.Username)
+}
