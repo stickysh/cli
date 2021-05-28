@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
@@ -11,14 +10,15 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/stickysh/cli/command"
-	"io"
 	"io/ioutil"
 	"log"
+
+	"github.com/stickysh/cli/command"
 
 	"net/http"
 	"os"
 	"path/filepath"
+
 	"sigs.k8s.io/yaml"
 
 	"time"
@@ -43,58 +43,17 @@ func loadDefFile(path string) ([]byte, error) {
 	return jsonDef, nil
 }
 
-func zipFolder(root string) (io.Reader, error) {
-	buf := new(bytes.Buffer)
-
-	w := zip.NewWriter(buf)
-	defer w.Close()
-
-	walker := func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-
-		zipPath := path
-		if filepath.IsAbs(root) {
-			zipPath, err = filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-		}
-
-		f, err := w.Create(zipPath)
-		if err != nil {
-			return err
-		}
-
-		_, err = io.Copy(f, file)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	err := filepath.Walk(root, walker)
+func InitCliServices(host string, confPath string) (*cliServices, error) {
+	cfg := internal.NewConfig(host, confPath)
+	cred, err := cfg.LoadAuth()
 	if err != nil {
-		return nil, err
+		return &cliServices{
+			cfg,
+			nil,
+		}, nil
 	}
 
-	return buf, nil
-}
-
-func InitCliServices(host string) *cliServices {
-	cfg := internal.NewConfig(host, "")
-	cfg.Auth, _ = cfg.LoadAuth()
-
+	cfg.Auth = cred
 	if cfg.Auth.AccessToken != "" && command.ShouldRefresh(cfg.Auth.AccessToken) {
 		auth := command.RefreshToken(cfg.RemoteHost, cfg.Auth.RefreshToken)
 		cfg.UpdateConf(auth)
@@ -105,7 +64,7 @@ func InitCliServices(host string) *cliServices {
 	return &cliServices{
 		cfg,
 		remote,
-	}
+	}, nil
 }
 
 type cliServices struct {
@@ -121,20 +80,39 @@ func main() {
 
 	var cliSvc *cliServices
 
+	cli.AppHelpTemplate = `
+   {{.Name}} - {{.Usage}}
+USAGE
+   {{.HelpName}} {{if .VisibleFlags}}[global options]{{end}}{{if .Commands}} command [command options]{{end}} {{if .ArgsUsage}}{{.ArgsUsage}}{{else}}[arguments...]{{end}}
+   {{if len .Authors}}
+COMMANDS
+{{range .Commands}}{{if not .HideHelp}}   {{join .Names ", "}}{{ "\t"}}{{.Usage}}{{ "\n" }}{{end}}{{end}}{{end}}{{if .VisibleFlags}}
+GLOBAL OPTIONS:
+   {{range .VisibleFlags}}{{.}}
+   {{end}}{{end}}{{if .Copyright }}
+VERSION:
+   {{.Version}}
+   {{end}}
+`
 	app := &cli.App{
-		Name:    "sticky",
-		Version: "v0.9-alpha",
-		Usage:   "Create wonderful automation to ease your daily routine",
+		Name:        "sticky",
+		Description: "CLI to Build ",
+		Version:     vesrion,
+		Usage:       "Create wonderful automations to ease your daily routine",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "host",
-				Value:   "https://sticky.sh",
+				Value:   "http://forgesvc.sticky.sh",
 				Usage:   "Remote host",
 				EnvVars: []string{"REMOTE_HOST"},
 			},
 		},
 		Before: func(c *cli.Context) error {
-			cliSvc = InitCliServices(c.String("host"))
+			// TODO
+			_, err := InitCliServices(c.String("host"), ".sticky")
+			if err != nil {
+				internal.OutError("")
+			}
 			return nil
 		},
 		Commands: []*cli.Command{
@@ -146,7 +124,8 @@ func main() {
 				},
 			},
 			{
-				Name: "login",
+				Name:   "login",
+				Hidden: true,
 				Action: func(c *cli.Context) error {
 					auth, err := command.Login(cliSvc.remote)
 					if err != nil {
@@ -157,15 +136,16 @@ func main() {
 				},
 			},
 			{
-				Name: "logout",
+				Name:   "logout",
+				Hidden: true,
 				Action: func(c *cli.Context) error {
 					cliSvc.cfg.DeleteConf()
 					return nil
 				},
 			},
 			{
-				Name:  "action",
-				Usage: "manage actions on sticky.sh",
+				Name:  "actions",
+				Usage: "Create and manage actions on sticky.sh",
 				Subcommands: []*cli.Command{
 					{
 						Name:        "create",
@@ -216,45 +196,8 @@ func main() {
 								return fmt.Errorf("please tag the new action")
 							}
 
-							jsonDef, err := loadDefFile(defPath)
-							if err != nil {
-								return err
-							}
+							command.ActionCreate(cliSvc.remote, actionPath, defPath, tag)
 
-							ep := fmt.Sprintf("/api/%s/actions/%s", cliSvc.cfg.Auth.Username, tag)
-							// Issue request
-							req, err := cliSvc.remote.NewRequest(http.MethodPost, ep, bytes.NewBuffer(jsonDef))
-							if err != nil {
-								return err
-							}
-
-							resp, err := cliSvc.remote.Do(req)
-							if err != nil {
-								return err
-							}
-
-							// TODO: respond to specif errors, 400/404/409
-
-							if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-								return err
-							}
-
-							fileReader, err := zipFolder(actionPath)
-							if err != nil {
-								return err
-							}
-
-							ep = fmt.Sprintf("%s/actions/%s/code", cliSvc.cfg.Auth.Username, tag)
-							resp, err = cliSvc.remote.Upload(ep, fileReader)
-							if err != nil {
-								return err
-							}
-
-							if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-								return err
-							}
-
-							fmt.Printf("Action %s updated\n", tag)
 							return nil
 						},
 					},
@@ -263,44 +206,22 @@ func main() {
 						Description: "Lists all the actions under your account",
 						Aliases:     []string{"ls"},
 						Action: func(c *cli.Context) error {
-							var respStruct []struct {
-								ID          string    `json:"id"`
-								Name        string    `json:"name"`
-								Description string    `json:"description"`
-								IsActive    bool      `json:"is_active"`
-								IsPublic    bool      `json:"is_public"`
-								CreatedAt   time.Time `json:"updated_at"`
-							}
-
-							ep := fmt.Sprintf("/%s/actions", cliSvc.cfg.Auth.Username)
-							req, err := cliSvc.remote.NewApiRequest(http.MethodGet, ep, nil)
+							res, err := command.ActionList(cliSvc.remote)
 							if err != nil {
 								return err
 							}
 
-							resp, err := cliSvc.remote.Do(req)
-							if err != nil {
-								return err
+							out := make([][]string, len(res))
+							for i, v := range res {
+								out[i] = []string{
+									fmt.Sprintf(v.ID),
+									fmt.Sprintf(v.Name),
+									fmt.Sprintf("%v", v.IsPublic),
+									fmt.Sprintf("%v", v.IsActive),
+									v.CreatedAt.Format("2006-01-02"),
+								}
 							}
 
-							if resp.StatusCode == http.StatusUnauthorized {
-								internal.OutError("you are not connected, please login")
-								return nil
-							}
-
-							if resp.StatusCode != http.StatusOK {
-								internal.OutError("an error occurred")
-								return nil
-							}
-
-							bodyRaw, err := ioutil.ReadAll(resp.Body)
-
-							json.Unmarshal(bodyRaw, &respStruct)
-
-							out := make([][]string, len(respStruct))
-							for i, v := range respStruct {
-								out[i] = []string{fmt.Sprintf(v.ID), fmt.Sprintf(v.Name), fmt.Sprintf("%v", v.IsPublic), fmt.Sprintf("%v", v.IsActive), v.CreatedAt.Format("2006-01-02")}
-							}
 							internal.OutResult([]string{"ACTION ID", "NAME", "PUBLIC", "ACTIVE", "UPDATED"}, out)
 							return nil
 						},
@@ -322,71 +243,8 @@ func main() {
 								secretValue = c.Args().Get(1)
 							}
 
-							ep := fmt.Sprintf("%s/secrets/key", cliSvc.cfg.Auth.Username)
-							req, err := cliSvc.remote.NewRequest(http.MethodGet, ep, bytes.NewBuffer([]byte{}))
-							if err != nil {
-								return err
-							}
+							err := command.SecretCreate(cliSvc.remote, secretName, secretValue)
 
-							resp, err := cliSvc.remote.Do(req)
-							var secretDef struct {
-								Key []byte
-							}
-
-							bodyRaw, err := ioutil.ReadAll(resp.Body)
-							if err != nil {
-								return err
-							}
-
-							json.Unmarshal(bodyRaw, &secretDef)
-
-							pubBlock, _ := pem.Decode(secretDef.Key)
-							if pubBlock == nil {
-								return fmt.Errorf("incorrect PEM")
-							}
-
-							pubKey, err := x509.ParsePKCS1PublicKey(pubBlock.Bytes)
-							if err != nil {
-								return err
-							}
-
-							if err != nil {
-								return err
-							}
-
-							encryptedBytes, err := rsa.EncryptOAEP(
-								sha256.New(),
-								rand.Reader,
-								pubKey,
-								[]byte(secretValue),
-								nil)
-							if err != nil {
-								panic(err)
-							}
-
-							reqSecretData := struct {
-								Name  string `json:"name"`
-								Value string `json:"value"`
-							}{
-								secretName,
-								base64.StdEncoding.EncodeToString(encryptedBytes),
-							}
-
-							jsonData, _ := json.Marshal(reqSecretData)
-
-							ep = fmt.Sprintf("%s/secrets", cliSvc.cfg.Auth.Username)
-							req, err = cliSvc.remote.NewRequest(http.MethodPost, ep, bytes.NewBuffer(jsonData))
-							if err != nil {
-								return err
-							}
-
-							resp, err = cliSvc.remote.Do(req)
-							if err != nil {
-								return err
-							}
-
-							log.Println(resp)
-							log.Println(err)
 							return nil
 						},
 					},
@@ -403,31 +261,21 @@ func main() {
 						Name:    "list",
 						Aliases: []string{"ls"},
 						Action: func(c *cli.Context) error {
-							var respSecretData []struct {
-								ID        string    `json:"id"`
-								Name      string    `json:"name"`
-								CreatedAt time.Time `json:"created_at"`
-							}
 
-							ep := fmt.Sprintf("%s/secrets", cliSvc.cfg.Auth.Username)
-							req, err := cliSvc.remote.NewRequest(http.MethodGet, ep, nil)
+							res, err := command.SecretList(cliSvc.remote)
 							if err != nil {
 								return err
 							}
 
-							resp, err := cliSvc.remote.Do(req)
-							if err != nil {
-								return err
+							out := make([][]string, len(res))
+							for i, v := range res {
+								out[i] = []string{
+									fmt.Sprintf(v.ID),
+									fmt.Sprintf(v.Name),
+									v.CreatedAt.Format("2006-01-02")
+								}
 							}
 
-							bodyRaw, err := ioutil.ReadAll(resp.Body)
-
-							json.Unmarshal(bodyRaw, &respSecretData)
-
-							out := make([][]string, len(respSecretData))
-							for i, v := range respSecretData {
-								out[i] = []string{fmt.Sprintf(v.ID), fmt.Sprintf(v.Name), v.CreatedAt.Format("2006-01-02")}
-							}
 							internal.OutResult([]string{"SECRET ID", "NAME", "CREATED"}, out)
 							return nil
 						},
@@ -435,7 +283,7 @@ func main() {
 				},
 			},
 			{
-				Name: "flow",
+				Name: "flows",
 				Subcommands: []*cli.Command{
 					{
 						Name: "create",
@@ -453,7 +301,7 @@ func main() {
 
 							flowPath := cliSvc.cfg.WD
 
-							defPath := fmt.Sprintf("%s/flow.yaml", flowPath)
+							defPath := fmt.Sprintf("%s/flow.tsx", flowPath)
 							if c.IsSet("file") {
 								defPath = c.String("file")
 								ext := filepath.Ext(defPath)
